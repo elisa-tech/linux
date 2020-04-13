@@ -6129,6 +6129,13 @@ L:	linux-edac@vger.kernel.org
 S:	Maintained
 F:	drivers/edac/ie31200_edac.c
 
+EDAC-INJECT-DUMMY
+M:	Gabriele Paoloni <gabriele.paoloni@intel.com>
+L:	linux-edac@vger.kernel.org
+S:	Maintained
+F:	Documentation/driver-api/edac_inject.rst
+F:	drivers/edac/edac_inject.c
+
 EDAC-MPC85XX
 M:	Johannes Thumshirn <morbidrsa@gmail.com>
 L:	linux-edac@vger.kernel.org
