@@ -86,6 +86,213 @@ static void inject_edac_check(struct mem_ctl_info *mci)
 	mutex_unlock(&pvt->lock);
 };
 
+struct inject_edac_attribute {
+	struct device_attribute attr;
+	unsigned long offset;
+	const char *default_msg;
+};
+
+#define to_inj_edac_attr(x) container_of(x, struct inject_edac_attribute, attr)
+
+static ssize_t inject_edac_store_count(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *data, size_t count)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	struct inj_err *val;
+	int ret;
+	u16 errcount;
+
+	ret = kstrtou16(data, 10, &errcount);
+	if (ret)
+		return ret;
+	if (!errcount)
+		return -EINVAL;
+
+	val = kzalloc(sizeof(struct inj_err), GFP_KERNEL);
+	if (!val)
+		return -ENOMEM;
+
+	val->type = ea->offset;
+	val->count = errcount;
+	val->info = pvt->info;
+	if (!pvt->info.msg[0])
+		strncpy(val->info.msg, ea->default_msg,
+			EDAC_INJECT_MAX_MSG_SIZE);
+
+	mutex_lock(&pvt->lock);
+	list_add(&val->link, &pvt->errors);
+	mutex_unlock(&pvt->lock);
+
+	return count;
+}
+
+static ssize_t inject_edac_show_count(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	struct inj_err *val;
+	unsigned int count = 0;
+
+	mutex_lock(&pvt->lock);
+	list_for_each_entry(val, &pvt->errors, link) {
+		if (val->type == ea->offset)
+			count += val->count;
+	}
+	mutex_unlock(&pvt->lock);
+
+	return sprintf(buf, "%u\n", count);
+}
+
+static ssize_t inject_edac_store_ulong(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *data, size_t count)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	unsigned long *val = (unsigned long *) (((char *) pvt) + ea->offset);
+	int ret;
+
+	ret = kstrtoul(data, 10, val);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static ssize_t inject_edac_show_ulong(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	unsigned long *val = (unsigned long *) (((char *) pvt) + ea->offset);
+
+	return sprintf(buf, "%lu\n", *val);
+}
+
+static ssize_t inject_edac_store_int(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *data, size_t count)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	int *val = (int *) (((char *) pvt) + ea->offset);
+	int ret;
+
+	ret = kstrtoint(data, 10, val);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static ssize_t inject_edac_show_int(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	int *val = (int *) (((char *) pvt) + ea->offset);
+
+	return sprintf(buf, "%d\n", *val);
+}
+
+static ssize_t inject_edac_store_str(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *data, size_t count)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	char *val = (((char *) pvt) + ea->offset);
+	char *aux;
+
+	aux = strstrip((char *) data);
+	strscpy(val, aux, EDAC_INJECT_MAX_MSG_SIZE);
+
+	return count;
+}
+
+static ssize_t inject_edac_show_str(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct inject_edac_attribute *ea = to_inj_edac_attr(attr);
+	struct inj_pvt *pvt = to_mci(dev)->pvt_info;
+	char *val = (((char *) pvt) + ea->offset);
+
+	return sprintf(buf, "%s\n", val);
+}
+
+#define DEVICE_INJECT_EDAC_COUNT(_name, _member, _type, _defstr)\
+	struct inject_edac_attribute inject_edac_attr_##_name =\
+		{ __ATTR(_name, 0600, inject_edac_show_count,\
+			 inject_edac_store_count),\
+		  _type, _defstr }
+
+#define DEVICE_INJECT_EDAC_ULONG(_name, _member)\
+	struct inject_edac_attribute inject_edac_attr_##_name =\
+		{ __ATTR(_name, 0600, inject_edac_show_ulong,\
+			 inject_edac_store_ulong),\
+		  offsetof(struct inj_pvt, info._member) }
+
+#define DEVICE_INJECT_EDAC_INT(_name, _member)\
+	struct inject_edac_attribute inject_edac_attr_##_name =\
+		{ __ATTR(_name, 0600, inject_edac_show_int,\
+			 inject_edac_store_int),\
+		  offsetof(struct inj_pvt, info._member) }
+
+#define DEVICE_INJECT_EDAC_STR(_name, _member)\
+	struct inject_edac_attribute inject_edac_attr_##_name =\
+		{ __ATTR(_name, 0600, inject_edac_show_str,\
+			 inject_edac_store_str),\
+		  offsetof(struct inj_pvt, info._member) }
+
+static DEVICE_INJECT_EDAC_COUNT(inject_ce, correctable_errors,
+			       HW_EVENT_ERR_CORRECTED,
+			       "injected correctable errors");
+static DEVICE_INJECT_EDAC_COUNT(inject_ue, uncorrectable_errors,
+			       HW_EVENT_ERR_UNCORRECTED,
+			       "injected uncorrectable errors");
+static DEVICE_INJECT_EDAC_COUNT(inject_de, deferrable_errors,
+			       HW_EVENT_ERR_DEFERRED,
+			       "injected deferrable errors");
+static DEVICE_INJECT_EDAC_COUNT(inject_fe, fatal_errors,
+			       HW_EVENT_ERR_FATAL,
+			       "injected fatal errors");
+static DEVICE_INJECT_EDAC_COUNT(inject_ie, informative_errors,
+			       HW_EVENT_ERR_INFO,
+			       "injected informative errors");
+static DEVICE_INJECT_EDAC_ULONG(inject_pfn, page_frame_number);
+static DEVICE_INJECT_EDAC_ULONG(inject_oip, offset_in_page);
+static DEVICE_INJECT_EDAC_ULONG(inject_syndrome, syndrome);
+static DEVICE_INJECT_EDAC_INT(inject_top, top_layer);
+static DEVICE_INJECT_EDAC_INT(inject_mid, mid_layer);
+static DEVICE_INJECT_EDAC_INT(inject_low, low_layer);
+static DEVICE_INJECT_EDAC_STR(inject_msg, msg);
+static DEVICE_INJECT_EDAC_STR(inject_other_detail, other_detail);
+
+static struct attribute *edac_inj_attrs[] = {
+	&inject_edac_attr_inject_ce.attr.attr,
+	&inject_edac_attr_inject_ue.attr.attr,
+	&inject_edac_attr_inject_de.attr.attr,
+	&inject_edac_attr_inject_fe.attr.attr,
+	&inject_edac_attr_inject_ie.attr.attr,
+	&inject_edac_attr_inject_pfn.attr.attr,
+	&inject_edac_attr_inject_oip.attr.attr,
+	&inject_edac_attr_inject_syndrome.attr.attr,
+	&inject_edac_attr_inject_top.attr.attr,
+	&inject_edac_attr_inject_mid.attr.attr,
+	&inject_edac_attr_inject_low.attr.attr,
+	&inject_edac_attr_inject_msg.attr.attr,
+	&inject_edac_attr_inject_other_detail.attr.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(edac_inj);
+
 static int __init edac_inject_init(void)
 {
 	struct edac_mc_layer layer;
@@ -117,7 +324,7 @@ static int __init edac_inject_init(void)
 	/* Set the function pointer for periodic errors checks */
 	mci->edac_check = inject_edac_check;
 
-	rc = edac_mc_add_mc_with_groups(mci, NULL);
+	rc = edac_mc_add_mc_with_groups(mci, edac_inj_groups);
 	if (rc) {
 		edac_inj_printk(KERN_ERR,
 				"EDAC INJECT: edac_mc_add_mc failed\n");
