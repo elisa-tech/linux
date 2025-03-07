@@ -747,7 +747,6 @@ void trace_event_enable_tgid_record(bool enable)
 
 /*
  * SPDX-Req-ID: [TODO: automatically generate it]
- * SPDX-Req-Child: [TODO add the SPDX-Req-ID of the ones below]
  * SPDX-Req-Ref: [TODO add the SPDX-Req-ID of __ftrace_set_clr_event_nolock]
  * SPDX-Text:
  * __ftrace_event_enable_disable - enable or disable a trace event
@@ -757,63 +756,63 @@ void trace_event_enable_tgid_record(bool enable)
  * @soft_disable: 1 or 0 respectively to mark if the enable parameter IS or
  * IS NOT a soft enable/disable
  *
- * Note: in the sub-requirements below all the mode bit refers to the flag
- *       field of the trace event file
+ * =============== option 1 - simpler ==================
+ * If enable is 1 tracing for the trace point event shall be enabled;
+ * in addition if soft_disable is 1 the trace point shall enter a soft-mode and
+ * a reference counter shall be instantiated.
+ * Further invocations with soft_disable equal to 1 shall result in a reference
+ * counter increase.
+ * If disable is 1 and soft_disable is 1, the associated reference counter shall
+ * be decrease, and, if it reaches 0, tracing for the trace-point event
+ * shall disabled only if previously enabled in soft-mode.
+ * If disable is 1 and soft_disable is 0, tracing for the trace-point event
+ * shall disabled only if previously enabled NOT in soft-mode.
  *
- * SPDX-Req-ID: [TODO fill it]
- * Req1: if enable is 0 and soft_disable is 1, decrement the soft mode
- *       reference counter; in the reference counter is non-zero, take
- *       no action.
- * SPDX-Req-End
- * SPDX-Req-ID: [TODO fill it]
- * Req2: if enable is 0 and soft_disable is 1, decrement the soft mode
- *       reference counter; if the reference counter is zero clear the
- *       soft mode bit and disable the use of trace_buffered_event, check
- *       if the event is soft disabled and also enabled:
- *       - clear the enable bit to mark the trace event to be disabled
- *       - if comms are traced at sched_switch, then stop tracing them
- *       - if tgids are traced at sched_switch, then stop tracing them
- *       - disable tracing for the trace point event (implementation specific)
- *       - clear the soft disabled bit
- * SPDX-Req-End
- * SPDX-Req-ID: [TODO fill it]
- * Req3: if enable is 0 and soft_disable is 0, check the soft mode bit;
- *       if the soft mode bit is set, set the soft disabled bit (to mark
- *       that the trace event has been soft disabled) and take no action.
- * SPDX-Req-End
- * SPDX-Req-ID: [TODO fill it]
- * Req4: if enable is 0 and soft_disable is 0, check the soft mode bit;
- *       if the soft mode bit is not set, check the enabled bit (to see if
- *       the trace event is enabled); if the enabled bit is set:
- *       - the same is cleared to mark the trace event to be disabled
- *       - if comms are traced at sched_switch, then stop tracing them
- *       - if tgids are traced at sched_switch, then stop tracing them
- *       - disable tracing for the trace point event (implementation specific)
- *       - clear the soft disabled bit
- * SPDX-Req-End
+ * =============== option 2 - verbose ==================
+ * Req 1: if soft_disable is 1 a reference counter associated with the trace
+ * event shall be increased or decreased according to the enable parameter
+ * being 1 (enable) or 0 (disable) respectively.
+ * If the reference counter is > 0 before the increase or after the decrease,
+ * no other actions shall be taken
  *
+ * Req 2: if soft_disable is 1 and enable 0 and the reference counter reaches
+ * zero, the use of trace_buffered_event shall be disabled and tracing for the
+ * trace point event shall be disabled only if previously enabled in soft mode
+ * (i.e. with soft_disable equal to 1)
  *
+ * Req 3: if soft_disable is 0 and enable 0 tracing for the trace point event
+ * shall be disabled only if previously enabled not in soft mode (i.e. enabled
+ * with soft_disable equal to 0)
  *
+ * Req 4: if enable is 1 tracing for the trace point event shall be enabled (if
+ * previously disabled); in addition if soft_disable is 1 and the reference
+ * counter is 0 before the increase, the use of trace_buffered_event shall be
+ * enabled and the soft mode flag shall be set
  *
- * ============= simplified proposal ==============
- * TODO: the level of detail above is too complex for requirements,
- * the requirements should be simplified and rewritten here:
- * SPDX-Req-ID: [TODO fill it]
- * Req 1: if soft_disable is 1 a reference counter should be increased or
- * decreased according to the enable parameter being 1 (enable) or 0 (disable)
- * respectively
- * SPDX-Req-End
- * SPDX-Req-ID: [TODO fill it]
- * Req 2: when enabling or disabling tracing for the trace point event
+ * Req 5: when enabling or disabling tracing for the trace point event
  * the flags associated with comms and tgids shall be checked and, if set,
  * respectively tracing of comms and tgdis at sched_switch shall be
  * enabled/disabled
- * SPDX-Req-End
+ * ====== end of options ========
  *
  * NOTE: in order to invoke this code in a thread-safe way, event_mutex shall
  * be locked before calling it.
  * NOTE: the validity of the input pointer file shall be checked by the caller
  *
+ * ====== TODO: following points must be clarified ========
+ * 1) what is the need for having the SOFT_DISABLED flag and SOFT_MODE?
+ *    can't we have just one?
+ * 2) What is the expected behavior if I call first [enable 1, soft_disable 1]
+ *    and then [enable 1, soft_disable 0]?
+ *    It seems that SOFT_MODE stays 1 while SOFT_DISABLED is set to 0. If at
+ *    this stage we invoke [enable 0, soft_disable 0] nothing happens since
+ *    SOFT_MODE is on; instead if at this stage we invoke
+ *    [enable 0, soft_disable 1] the event is also not disabled because
+ *    SOFT_DISABLED is set to 0.
+ * 3) Why a default statement is missing (where an error condition should
+ *    be returned)?
+ *
+* SPDX-Req-End
  */
 static int __ftrace_event_enable_disable(struct trace_event_file *file,
 					 int enable, int soft_disable)
