@@ -795,6 +795,8 @@ void trace_event_enable_tgid_record(bool enable)
  * enabled/disabled
  * ====== end of options ========
  *
+ * Returns 0 on success, or any error returned by the event register callbacks.
+ *
  * NOTE: in order to invoke this code in a thread-safe way, event_mutex shall
  * be locked before calling it.
  * NOTE: the validity of the input pointer file shall be checked by the caller
@@ -811,8 +813,11 @@ void trace_event_enable_tgid_record(bool enable)
  *    SOFT_DISABLED is set to 0.
  * 3) Why a default statement is missing (where an error condition should
  *    be returned)?
+ * 4) Why call->class->reg(call, TRACE_REG_UNREGISTER, file) is invoked
+ *    without the assignment
+ *    ret = call->class->reg(call, TRACE_REG_UNREGISTER, file); ?
  *
-* SPDX-Req-End
+ * SPDX-Req-End
  */
 static int __ftrace_event_enable_disable(struct trace_event_file *file,
 					 int enable, int soft_disable)
