@@ -757,16 +757,16 @@ void trace_event_enable_tgid_record(bool enable)
  * IS NOT a soft enable/disable
  *
  * =============== option 1 - simpler ==================
- * If enable is 1 tracing for the trace point event shall be enabled;
- * in addition if soft_disable is 1 the trace point shall enter a soft-mode and
+ * If enable is 1, tracing for the trace point event shall be enabled;
+ * in addition if soft_disable is 1, the trace point shall enter a soft-mode and
  * a reference counter shall be instantiated.
  * Further invocations with soft_disable equal to 1 shall result in a reference
  * counter increase.
  * If disable is 1 and soft_disable is 1, the associated reference counter shall
- * be decrease, and, if it reaches 0, tracing for the trace-point event
- * shall disabled only if previously enabled in soft-mode.
+ * be decreased, and, if it reaches 0, tracing for the trace-point event
+ * shall be disabled only if previously enabled in soft-mode.
  * If disable is 1 and soft_disable is 0, tracing for the trace-point event
- * shall disabled only if previously enabled NOT in soft-mode.
+ * shall be disabled only if previously enabled NOT in soft-mode.
  *
  * =============== option 2 - verbose ==================
  * Req 1: if soft_disable is 1 a reference counter associated with the trace
@@ -1357,13 +1357,15 @@ static void remove_event_file_dir(struct trace_event_file *file)
  * @sub: target system name (NULL for any)
  * @event: target event name (NULL for any)
  * @set: 1 to enable, 0 to disable (any other value is invalid)
+ * @mod: target module name (NULL for any)
  *
  * for each event in the list:
  * 1) skip the event if any of the following condition is true:
- *    a) the trace event class is NULL, OR
- *    b) the event name in NULL, OR
- *    c) the reg callback of the trace event class is NULL,
- *    d) in the event call the IGNORE_ENABLE flag is set;
+ *    a) the event does not belong to the input module (if specified)
+ *    b) the trace event class is NULL, OR
+ *    c) the event name in NULL, OR
+ *    d) the reg callback of the trace event class is NULL,
+ *    e) the IGNORE_ENABLE flag is set for the event call
  * 2) if "match" is defined, check if the current event's name or system match
  *    the "match" string, if a match is not found move on to the next event;
  * 3) if "sub" is defined, check if the current event's system match the "sub"
@@ -1375,8 +1377,9 @@ static void remove_event_file_dir(struct trace_event_file *file)
  *    soft_disable flag not set.
  *
  * Returns 0 on success, -EINVAL if the parameters do not match any registered
- * events or the error condition returned by the first call to
- * ftrace_event_enable_disable that returned and error.
+ * events, -ENOMEM if memory allocation fails for the module pointer or the
+ * error condition returned by the first call to ftrace_event_enable_disable
+ * that returned an error.
  *
  * NOTE: in order to invoke this code in a thread-safe way, event_mutex shall
  * be locked before calling it.
