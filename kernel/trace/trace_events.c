@@ -756,46 +756,34 @@ void trace_event_enable_tgid_record(bool enable)
  * @soft_disable: 1 or 0 respectively to mark if the enable parameter IS or
  * IS NOT a soft enable/disable
  *
- * =============== option 1 - simpler ==================
- * If enable is 1, tracing for the trace point event shall be enabled;
- * in addition if soft_disable is 1, the trace point shall enter a soft-mode and
- * a reference counter shall be instantiated.
- * Further invocations with soft_disable equal to 1 shall result in a reference
- * counter increase.
- * If disable is 1 and soft_disable is 1, the associated reference counter shall
- * be decreased, and, if it reaches 0, tracing for the trace-point event
- * shall be disabled only if previously enabled in soft-mode.
- * If disable is 1 and soft_disable is 0, tracing for the trace-point event
- * shall be disabled only if previously enabled NOT in soft-mode.
- *
- * =============== option 2 - verbose ==================
- * Req 1: if soft_disable is 1 a reference counter associated with the trace
+ * Function Expectations:
+ * - If soft_disable is 1 a reference counter associated with the trace
  * event shall be increased or decreased according to the enable parameter
  * being 1 (enable) or 0 (disable) respectively.
  * If the reference counter is > 0 before the increase or after the decrease,
- * no other actions shall be taken
+ * no other actions shall be taken.
  *
- * Req 2: if soft_disable is 1 and enable 0 and the reference counter reaches
+ * - If soft_disable is 1 and enable 0 and the reference counter reaches
  * zero, the use of trace_buffered_event shall be disabled and tracing for the
  * trace point event shall be disabled only if previously enabled in soft mode
- * (i.e. with soft_disable equal to 1)
+ * (i.e. with soft_disable equal to 1).
  *
- * Req 3: if soft_disable is 0 and enable 0 tracing for the trace point event
+ * - If soft_disable is 0 and enable 0 tracing for the trace point event
  * shall be disabled only if previously enabled not in soft mode (i.e. enabled
- * with soft_disable equal to 0)
+ * with soft_disable equal to 0).
  *
- * Req 4: if enable is 1 tracing for the trace point event shall be enabled (if
+ * - If enable is 1 tracing for the trace point event shall be enabled (if
  * previously disabled); in addition if soft_disable is 1 and the reference
  * counter is 0 before the increase, the use of trace_buffered_event shall be
- * enabled and the soft mode flag shall be set
+ * enabled and the soft mode flag shall be set.
  *
- * Req 5: when enabling or disabling tracing for the trace point event
+ * - When enabling or disabling tracing for the trace point event
  * the flags associated with comms and tgids shall be checked and, if set,
  * respectively tracing of comms and tgdis at sched_switch shall be
- * enabled/disabled
- * ====== end of options ========
+ * enabled/disabled.
  *
- * Returns 0 on success, or any error returned by the event register callbacks.
+ * Returns 0 on success, or any error returned by the event register or
+ * unregister callbacks.
  *
  * NOTE: in order to invoke this code in a thread-safe way, event_mutex shall
  * be locked before calling it.
@@ -1364,22 +1352,17 @@ static void remove_event_file_dir(struct trace_event_file *file)
  * @set: 1 to enable, 0 to disable (any other value is invalid)
  * @mod: target module name (NULL for any)
  *
- * for each event in the list:
- * 1) skip the event if any of the following condition is true:
- *    a) the event does not belong to the input module (if specified)
- *    b) the trace event class is NULL, OR
- *    c) the event name in NULL, OR
- *    d) the reg callback of the trace event class is NULL,
- *    e) the IGNORE_ENABLE flag is set for the event call
- * 2) if "match" is defined, check if the current event's name or system match
- *    the "match" string, if a match is not found move on to the next event;
- * 3) if "sub" is defined, check if the current event's system match the "sub"
- *    string, if no match is found, move on to the next event;
- * 4) if "event" is defined, check if the current event's system match the
- *    "event" string, if no match is found, move on to the next event;
- * 5) invokes ftrace_event_enable_disable that in turns invokes
- *    __ftrace_event_enable_disable passing the same parameters with the
- *    soft_disable flag not set.
+ * Function's Expectations:
+ * - If mod is set, shall sanitize the mod name by replacing all '-' with
+ *   '_' to match the modules' naming convention used in the Kernel;
+ * - From the events' list in the input tr, shall select the ensemble of
+ *   events to be enabled or disabled according to the input match, sub,
+ *   event and mod parameters. Each of these parameters, if set, shall
+ *   restrict the events ensemble to those with a matching parameter's name.
+ * - For each of the selected events check the IGNORE_ENABLE flag, and,
+ *   if not set, invoke ftrace_event_enable_disable passing the input set
+ *   parameter to either enable or disable the event.
+ *
  *
  * Returns 0 on success, -EINVAL if the parameters do not match any registered
  * events, -ENOMEM if memory allocation fails for the module pointer or the
@@ -1541,11 +1524,12 @@ int ftrace_set_clr_event(struct trace_array *tr, char *buf, int set)
  * This is a way for other parts of the kernel to enable or disable
  * event recording.
  *
- * sequence of events:
- * 1) retrieve the global tracer
- * 2) locks the global event_mutex
- * 3) invokes __ftrace_set_clr_event_nolock
- * 4) unlocks the global event_mutex
+ * Expectations:
+ * - This function shall retrieve the pointer of the global trace
+ *   array (global tracer) and pass it, along the rest of input
+ *   parameters, to __ftrace_set_clr_event_nolock;
+ * - This function shall properly lock/unlock the global event_mutex
+ * 	 before/after invoking ftrace_set_clr_event_nolock.
  *
  * Returns 0 on success, -ENODEV if the global tracer cannot be retrieved,
  * -EINVAL if the parameters do not match any registered events, any other
@@ -1575,11 +1559,10 @@ EXPORT_SYMBOL_GPL(trace_set_clr_event);
  * This is a way for other parts of the kernel to enable or disable
  * event recording.
  *
- * sequence of events:
- * 1) check the input tr to be valid
- * 2) locks the global event_mutex
- * 3) invokes __ftrace_set_clr_event_nolock
- * 4) unlocks the global event_mutex
+ * Expectations:
+ * - This function shall properly lock/unlock the global event_mutex
+ * 	 before/after invoking ftrace_set_clr_event_nolock passing along
+ * 	 the same input parameters.
  *
  * Returns 0 on success, -ENOENT if the input tr is NULL,
  * -EINVAL if the parameters do not match any registered events, any other
