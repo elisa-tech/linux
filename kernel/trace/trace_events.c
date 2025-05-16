@@ -763,19 +763,25 @@ void trace_event_enable_tgid_record(bool enable)
  * If the reference counter is > 0 before the increase or after the decrease,
  * no other actions shall be taken.
  *
- * - If soft_disable is 1 and enable 0 and the reference counter reaches
- * zero, the use of trace_buffered_event shall be disabled and tracing for the
- * trace point event shall be disabled only if previously enabled in soft mode
- * (i.e. with soft_disable equal to 1).
+ * - if soft_disable is 1 and the trace event reference counter is 0 before
+ * the increase or after the decrease, an enable value set to 0 or 1 shall set
+ * or clear the soft mode flag respectively; this is characterized by disabling
+ * or enabling the use of trace_buffered_event respectively.
  *
- * - If soft_disable is 0 and enable 0 tracing for the trace point event
- * shall be disabled only if previously enabled not in soft mode (i.e. enabled
- * with soft_disable equal to 0).
+ * - If soft_disable is 1 and enable is 0 and the reference counter reaches
+ * zero and if the soft disabled flag is set (i.e. if the event was previously
+ * enabled with soft_disable = 1), tracing for the trace point event shall be
+ * disabled and the soft disabled flag shall be cleared.
  *
- * - If enable is 1 tracing for the trace point event shall be enabled (if
+ * - If soft_disable is 0 and enable is 0, tracing for the trace point event
+ * shall be disabled only if the soft mode flag is clear (i.e. event previously
+ * enabled with soft_disable = 0). Additionally the soft disabled flag shall be
+ * set or cleared according to the soft mode flag being set or clear
+ * respectively.
+ *
+ * - If enable is 1, tracing for the trace point event shall be enabled (if
  * previously disabled); in addition if soft_disable is 1 and the reference
- * counter is 0 before the increase, the use of trace_buffered_event shall be
- * enabled and the soft mode flag shall be set.
+ * counter is 0 before the increase, the soft disabled flag shall be set.
  *
  * - When enabling or disabling tracing for the trace point event
  * the flags associated with comms and tgids shall be checked and, if set,
@@ -788,22 +794,6 @@ void trace_event_enable_tgid_record(bool enable)
  * NOTE: in order to invoke this code in a thread-safe way, event_mutex shall
  * be locked before calling it.
  * NOTE: the validity of the input pointer file shall be checked by the caller
- *
- * ====== TODO: following points must be clarified ========
- * 1) what is the need for having the SOFT_DISABLED flag and SOFT_MODE?
- *    can't we have just one?
- * 2) What is the expected behavior if I call first [enable 1, soft_disable 1]
- *    and then [enable 1, soft_disable 0]?
- *    It seems that SOFT_MODE stays 1 while SOFT_DISABLED is set to 0. If at
- *    this stage we invoke [enable 0, soft_disable 0] nothing happens since
- *    SOFT_MODE is on; instead if at this stage we invoke
- *    [enable 0, soft_disable 1] the event is also not disabled because
- *    SOFT_DISABLED is set to 0.
- * 3) Why a default statement is missing (where an error condition should
- *    be returned)?
- * 4) Why call->class->reg(call, TRACE_REG_UNREGISTER, file) is invoked
- *    without the assignment
- *    ret = call->class->reg(call, TRACE_REG_UNREGISTER, file); ?
  *
  * SPDX-Req-End
  */
