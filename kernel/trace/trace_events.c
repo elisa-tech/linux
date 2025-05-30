@@ -1879,6 +1879,40 @@ event_enable_read(struct file *filp, char __user *ubuf, size_t cnt,
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, strlen(buf));
 }
 
+/**
+ * SPDX-Req-ID: [TODO automatically generate it]
+ * SPDX-Req-Text:
+ * event_enable_write - write to a trace event file to enable/disable it.
+ * @filp: file pointer associated with the target trace event;
+ * @ubuf: user space buffer where the enable/disable value is copied from;
+ * @cnt: number of bytes to be copied from the user space buffer;
+ * @ppos: the current position in the buffer.
+ *
+ * This is a way for user space executables to enable or disable event
+ * recording.
+ *
+ * Function's expectations:
+ * - This function shall copy the enable/disable value from the user space
+ *   buffer considering a decimal base format for the input number;
+ * - This function shall properly lock the global event_mutex before performing
+ *   any operation on the target event file and unlock it before returning;
+ * - This function shall check the size of the per-cpu ring-buffers used for
+ *   the event trace data and, if smaller, expand them to TRACE_BUF_SIZE_DEFAULT
+ *   bytes;
+ * - This function shall invoke ftrace_event_enable_disable respectively to
+ *   enable or disable the target trace event according to the value read from
+ *   user space (0 - disable, 1 - enable).
+ * - This function shall
+ *
+ * Returns 0 on success, any error returned by kstrtoul_from_user, -ENODEV if
+ * the event file cannot be retrieved from the input filp, any error returned by
+ * tracing_update_buffers, any error returned by ftrace_event_enable_disable,
+ * -EINVAL if the value copied from the user space ubuf is different from 0 or
+ * 1.
+ *
+ * TODO:
+ * - Why is ppos updated? It is not used at all anyway...
+ */
 static ssize_t
 event_enable_write(struct file *filp, const char __user *ubuf, size_t cnt,
 		   loff_t *ppos)
