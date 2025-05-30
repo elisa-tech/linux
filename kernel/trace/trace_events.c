@@ -1550,7 +1550,7 @@ EXPORT_SYMBOL_GPL(trace_set_clr_event);
  * This is a way for other parts of the kernel to enable or disable event
  * recording.
  *
- * Fumction's expectations:
+ * Function's expectations:
  * - This function shall properly lock/unlock the global event_mutex
  *   before/after invoking ftrace_set_clr_event_nolock passing along the same
  *   input parameters.
