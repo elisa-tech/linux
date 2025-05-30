@@ -1892,17 +1892,21 @@ event_enable_read(struct file *filp, char __user *ubuf, size_t cnt,
  * recording.
  *
  * Function's expectations:
- * - This function shall copy the enable/disable value from the user space
- *   buffer considering a decimal base format for the input number;
- * - This function shall properly lock the global event_mutex before performing
- *   any operation on the target event file and unlock it before returning;
+ * - This function shall copy the input ubuf buffer from user space to a kernel
+ *   space buffer and shall convert the respective string to a decimal base
+ *   format number;
+ * - This function shall lock the global event_mutex before performing any
+ *   operation on the target event file and unlock it after all operations on
+ *   the target event file have completed;
  * - This function shall check the size of the per-cpu ring-buffers used for
- *   the event trace data and, if smaller, expand them to TRACE_BUF_SIZE_DEFAULT
- *   bytes;
- * - This function shall invoke ftrace_event_enable_disable respectively to
- *   enable or disable the target trace event according to the value read from
- *   user space (0 - disable, 1 - enable).
- * - This function shall
+ *   the event trace data and, if smaller than TRACE_BUF_SIZE_DEFAULT, expand
+ *   them to TRACE_BUF_SIZE_DEFAULT bytes (sizes larger than
+ *   TRACE_BUF_SIZE_DEFAULT are not allowed);
+ * - This function shall invoke ftrace_event_enable_disable to enable or
+ *   disable the target trace event according to the value read from user space
+ *   (0 - disable, 1 - enable);
+ * - Before returning this function shall increment ppos by the number of bytes
+ *   copied from the user space ubuf buffer.
  *
  * Returns 0 on success, any error returned by kstrtoul_from_user, -ENODEV if
  * the event file cannot be retrieved from the input filp, any error returned by
