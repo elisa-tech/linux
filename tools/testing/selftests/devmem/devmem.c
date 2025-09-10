@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0+
 /* devmem test devmem.c
  *
  * Copyright (C) 2025 Red Hat, Inc. All Rights Reserved.
@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 		dump_ram_map(t.map);
 	}
 
-	for (i = 0; i < sizeof(test_set)/sizeof(test_set[0]); i++) {
+	for (i = 0; i < ARRAY_SIZE(test_set); i++) {
 		str_warn = NO_WARN_STR;
 		current = test_set + i;
 		tmp_res = test_needed(&t, current);

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0+
 /* devmem test ram_map.c
  *
  * Copyright (C) 2025 Red Hat, Inc. All Rights Reserved.
@@ -93,7 +93,7 @@ struct ram_map *parse_iomem(void)
 	}
 
 	struct ram_map *map = calloc(1, sizeof(*map));
-	
+
 	if (!map) {
 		perror("calloc map");
 		fclose(fp);
@@ -125,7 +125,7 @@ void free_ram_map(struct ram_map *map)
 
 	for (size_t i = 0; i < map->count; i++)
 		free(map->regions[i].name);
-	
+
 	free(map->regions);
 	free(map);
 }
@@ -135,9 +135,6 @@ uint64_t find_last_linear_byte(int fd, uint64_t low_start, uint64_t max_addr)
 	uint64_t low = low_start + SAFE_OFFSET;
 	uint64_t high = max_addr;
 	uint64_t last_good = 0;
-
-	deb_printf("find_last_linear_byte(%d, 0x%llx, 0x%llx)\n",
-	   fd, low_start, max_addr);
 
 	while (low <= high) {
 		uint64_t mid = low + (high - low) / 2;
@@ -221,15 +218,15 @@ uint64_t pick_outside_address(const struct ram_map *map)
 {
 	uint64_t max_addr = 0;
 
-        if (!map || !map->regions || map->count == 0)
-                return 0;
+	if (!map || !map->regions || map->count == 0)
+		return 0;
 
-        for (size_t i = 0; i < map->count; i++) {
-                if (max_addr < map->regions[i].end)
+	for (size_t i = 0; i < map->count; i++) {
+		if (max_addr < map->regions[i].end)
 			max_addr = map->regions[i].end;
-        }
+	}
 
-        return max_addr + 0x1000;
+	return max_addr + 0x1000;
 }
 
 uint64_t pick_valid_ram_address(const struct ram_map *map)
@@ -241,7 +238,7 @@ uint64_t pick_valid_ram_address(const struct ram_map *map)
 
 	for (size_t i = 0; i < map->count; i++) {
 		if (!strcmp("System RAM", map->regions[i].name)) {
-			if (best_size < map->regions[i].end - 
+			if (best_size < map->regions[i].end -
 					      map->regions[i].start) {
 				best_low = map->regions[i].end;
 				best_size = map->regions[i].end -

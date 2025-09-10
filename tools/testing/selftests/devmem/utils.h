@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+/* SPDX-License-Identifier: GPL-2.0+ */
 /* devmem test utils.h
  *
  * Copyright (C) 2025 Red Hat, Inc. All Rights Reserved.
@@ -66,16 +66,16 @@
 #define F_MISC_WARN_ON_SUCCESS		(1 << 16)
 #define F_MISC_WARN_ON_FAILURE		(1 << 17)
 
-typedef enum {
+enum {
 	TEST_DENIED,
 	TEST_INCOHERENT,
 	TEST_ALLOWED
-} test_consistency;
+};
 
 struct test_context {
-	struct ram_map 	*map;
-	char 		*srcbuf;
-	char 		*dstbuf;
+	struct ram_map	*map;
+	char		*srcbuf;
+	char		*dstbuf;
 	uintptr_t	tst_addr;
 	int		fd;
 	bool		verbose;
@@ -99,21 +99,21 @@ struct test_context {
  */
 struct char_mem_test {
 	char		*name;
-	int		(*fn)(struct test_context *);
+	int		(*fn)(struct test_context *t);
 	char		*descr;
 	uint64_t	flags;
 };
 
-int try_read_dev_mem(int, uint64_t, int, void *);
-int try_write_dev_mem(int, uint64_t, int, void *);
-int try_read_inplace(int, int, void *);
-uint64_t virt_to_phys(void *);
-int fill_random_chars(char *, int);
-bool is_zero(const void *, size_t);
-void print_hex(const void *, size_t);
-test_consistency test_needed(struct test_context *, struct char_mem_test *);
-void *malloc_pb(size_t);
-void free_pb(void *);
+uint64_t virt_to_phys(void *virt_addr);
+int try_read_inplace(int fd, int scnt, void *sbuf);
+int try_read_dev_mem(int fd, uint64_t addr, int scnt, void *sbuf);
+int try_write_dev_mem(int fd, uint64_t addr, int scnt, void *sbuf);
+int fill_random_chars(char *buf, int cnt);
+bool is_zero(const void *p, size_t cnt);
+void print_hex(const void *p, size_t cnt);
+int test_needed(struct test_context *t, struct char_mem_test *current);
+void *malloc_pb(size_t size);
+void free_pb(void *ptr);
 
 #endif
 
