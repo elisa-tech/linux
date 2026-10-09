@@ -35,14 +35,11 @@ to evaluate safety considerations. We use strace tool to trace workloads.
 
 This method of tracing using strace tells us the system calls invoked by
 the workload and doesn't include all the system calls that can be invoked
-by it. In addition, this tracing method tells us just the code paths within
-these system calls that are invoked. As an example, if a workload opens a
-file and reads from it successfully, then the success path is the one that
-is traced. Any error paths in that system call will not be traced. If there
-is a workload that provides full coverage of a workload then the method
-outlined here will trace and find all possible code paths. The completeness
-of the system usage information depends on the completeness of coverage of a
-workload.
+by it. It reports syscall arguments and results, not the internal kernel
+code paths. As an example, if a workload opens a file and reads from it
+successfully, that run does not exercise the error cases for those calls.
+The completeness of the system usage information depends on the completeness
+of coverage of a workload.
 
 The goal is tracing a workload on a system running a default kernel without
 requiring custom kernel installs.
@@ -604,6 +601,131 @@ times each system call is invoked, and the corresponding Linux subsystem.
 +-------------------+-----------+-----------------+----------------------+
 | arch_prctl        | 2         | Process Mgmt.   | sys_arch_prctl()     |
 +-------------------+-----------+-----------------+----------------------+
+
+Tracing another workload
+=========================
+
+???? isnt' this just clarification that should be folded in the strace example above?
+
+The examples above summarize syscall counts for three workloads. To retain
+arguments, results, and calls from child processes for another application,
+run it with its normal inputs and environment::
+
+    strace -f -o syscalls.log ./app
+    strace -f -c -o syscall-summary.txt ./app
+
+These are separate runs. ``-f`` follows children and threads; ``-c`` produces
+a summary rather than the chronological trace. For a narrower investigation,
+add ``-e trace=%file`` to the first command to select file-related calls.
+``-k`` can add user-space stack traces when strace supports unwinding; it
+does not expose the kernel call stack. For an application that does not exit,
+stop the tracing session after a defined observation interval. Include
+startup and representative error inputs, not just a successful steady state.
+
+Kernel paths reached by the workload
+-----------------------------------
+
+???? move this section up a level
+
+To go beyond the syscall boundary, use the function graph tracer described
+in :doc:`/trace/ftrace`. In a tracing-capable test system or QEMU guest,
+install ``trace-cmd`` and check that the running kernel provides
+``CONFIG_FTRACE``, ``CONFIG_FUNCTION_TRACER``, and
+``CONFIG_FUNCTION_GRAPH_TRACER``. Enabling ``FTRACE`` alone is not sufficient.
+Check availability and collect a task-filtered graph::
+
+    trace-cmd list -t
+    sudo trace-cmd record -p function_graph -F -c -O nofuncgraph-irqs \
+        --user "$USER" -o functions.dat ./app
+    trace-cmd report -i functions.dat > functions.txt
+
+Use an isolated measurement system: these commands change its tracing state.
+``-F`` filters to the launched application, ``-c`` follows its children, and
+``--user`` avoids running the workload as root just because the recorder needs
+privileges. Preserve the workload's original user and environment. The option
+``nofuncgraph-irqs`` excludes interrupt execution from the graph; asynchronous
+work in other tasks is outside this task filter too. Check the report for lost
+events before treating missing functions as unobserved. The perf examples
+above provide sampled profiles, not an exhaustive list of executed functions.
+
+Tracing a minimal user space
+---------------------------
+
+???? move this section up a level
+
+A single-binary initramfs has no shell or guest tracing tools. Initial discovery
+can use the same application and libc in a full guest for the target
+architecture, but that does not reproduce its launch as PID 1. Inspect the
+actual boot with QEMU's host-side GDB stub without adding tools to the archive.
+
+Follow :doc:`/process/debugging/gdb-kernel-debugging` for the debug build and
+matching ``vmlinux`` setup. Add ``nokaslr`` to the guest kernel command line
+and ``-S -gdb tcp:127.0.0.1:1234`` to the QEMU boot command. ``-S`` pauses the
+guest before boot, allowing breakpoints to be installed. Connect host GDB::
+
+    gdb-multiarch /path/to/build/vmlinux
+    (gdb) target remote localhost:1234
+    (gdb) tbreak kernel_init
+    (gdb) continue
+
+For a native 64-bit arm64 workload, the following records syscall entry numbers
+and the first argument from the saved user registers. It starts after PID 1's
+kernel initialization, before the application executes::
+
+    (gdb) set pagination off
+    (gdb) set logging file pid1-syscalls.log
+    (gdb) set logging enabled on
+    (gdb) break do_el0_svc
+    (gdb) commands
+    > silent
+    > printf "syscall=%lu arg0=%#lx\n", regs->regs[8], regs->regs[0]
+    > continue
+    > end
+    (gdb) continue
+
+Interrupt GDB with Ctrl-C after the observation interval, then disable logging.
+Resolve the numbers using the matching target build's syscall-number definitions.
+These are entry observations, not decoded arguments or syscall results. To
+inspect a particular kernel path, disable the logging breakpoint, set a
+breakpoint on its implementation, and use ``bt`` or ``step`` at the hit.
+Entry functions and register layouts are architecture- and revision-specific;
+check them against the matching source. Once other processes exist, an entry
+breakpoint can also capture their calls; GDB threads in QEMU represent vCPUs,
+not Linux tasks. This is not a task-filtered whole-kernel coverage collector.
+
+QEMU also offers low-level logging with ``-d`` (list options with ``-d help``)
+and ``-D qemu.log``. For example, ``-d in_asm`` logs translated instruction
+blocks, not every execution or a workload-specific call trace. Do not use its
+absence of a repeated block as evidence that the block did not execute.
+
+Mapping observations to configuration
+------------------------------------
+
+Use the source revision and architecture matching the measured kernel, rather
+than assuming the syscall tables above describe every build. Locate each
+syscall implementation with cscope or its ``SYSCALL_DEFINE`` declaration,
+follow calls into the relevant subsystem, and inspect its Makefile and Kconfig.
+For example, ``eventfd2`` is implemented in ``fs/eventfd.c``;
+``fs/Makefile`` builds ``eventfd.o`` under ``CONFIG_EVENTFD``. Use the
+configuration help to review its dependencies before changing the option.
+Other paths, such as the core ``write`` syscall, are built unconditionally
+and may reach different drivers depending on the file descriptor. A syscall
+does not necessarily map to one removable option.
+
+Retain results as well as names: a libc may probe an optional syscall, tolerate
+``ENOSYS``, and take a fallback path. Observing the call alone does not prove
+that the feature must remain enabled. Conversely, boot and recovery dependencies
+may be absent from an application's syscall trace. Record the observed path,
+source/configuration mapping, and result of re-testing after the change.
+
+For the distinction between built code and observed execution, use
+:doc:`/dev-tools/gcov` for execution counts and :doc:`/dev-tools/kcov` for
+task-scoped kernel PCs. Follow their collection and symbolization instructions
+in a separate measurement build; neither strace nor a sampled perf profile
+supplies those coverage results. Unobserved code remains a candidate for
+investigation, not proof of an unnecessary feature.
+
+??? is there also a tie back to using the sloc tool with the additional reporting to ahve the fucntion/file complied listing?
 
 Conclusion
 ==========

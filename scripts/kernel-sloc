@@ -1,0 +1,184 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# kernel-sloc - Count source lines of code for a configured kernel build.
+#
+# Adapted from the Unikraft build-time SLOC reporting approach
+# (https://github.com/unikraft/unikraft/pull/1880), which counts compiled
+# sources rather than the whole source tree.
+#
+# The kernel mode counts whole compiled files, including inactive #if branches,
+# but not the headers they include. The dwarf mode estimates source lines
+# represented by debug information in a linked ELF; it does not measure runtime
+# coverage. Neither count is a certification or structural-coverage result.
+# See Documentation/admin-guide/kernel-minimization.rst for the workflow.
+
+set -euo pipefail
+
+die() {
+	echo "ERROR: $*" >&2
+	exit 1
+}
+
+need_command() {
+	command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+need_cloc() {
+	command -v cloc >/dev/null 2>&1 ||
+		die "cloc not found. Install it (e.g. 'apt-get install cloc') and re-run."
+}
+
+usage() {
+	printf 'Usage: %s MODE TARGET...\n' "$0"
+	printf '%s\n' \
+		'  kernel BUILD_DIR  Count whole compiled sources from compile_commands.json.' \
+		'                    Requires cloc and python3. Generate the database after' \
+		'                    a clean build of the configuration being measured.' \
+		'  dwarf ELF         Estimate distinct source lines using DWARF addresses.' \
+		'                    Requires GNU objdump, addr2line, and python3, plus' \
+		'                    an ELF built with debug information (CONFIG_DEBUG_INFO).' \
+		'                    Set OBJDUMP and ADDR2LINE for cross builds, or set' \
+		'                    CROSS_COMPILE to the toolchain prefix.' \
+		'  tree DIR          Count all C, C++, and header sources; requires cloc.' \
+		'  files FILE...     Count individual source files; requires cloc.' \
+		'  -h, --help        Show this help and exit successfully.' \
+		'' \
+		'Success prints one integer on stdout and a summary on stderr.' \
+		'Errors exit non-zero without printing a count.' \
+		'Counts depend on the tool versions and build options; record both.'
+}
+
+# Extract the code total from cloc CSV, including the empty-tree case.
+cloc_sum() {
+	awk -F',' '$2 == "SUM" {total = $5} END {print total + 0}'
+}
+
+cloc_sum_from_list() {
+	cloc --list-file="$1" --skip-uniqueness --csv --quiet | cloc_sum
+}
+
+case "${1:-}" in
+-h|--help)
+	[[ "$#" -eq 1 ]] || { usage >&2; exit 2; }
+	usage
+	exit 0
+	;;
+kernel|dwarf|tree)
+	[[ "$#" -eq 2 ]] || { usage >&2; exit 2; }
+	;;
+files)
+	[[ "$#" -ge 2 ]] || { usage >&2; exit 2; }
+	;;
+*)
+	usage >&2
+	exit 2
+	;;
+esac
+
+mode="$1"
+target="$2"
+
+case "$mode" in
+kernel)
+	need_cloc
+	need_command python3
+	[[ -d "$target" ]] || die "kernel build dir not found: $target"
+	ccj="$target/compile_commands.json"
+	if [[ ! -f "$ccj" ]]; then
+		# Use the source-tree generator even for an out-of-tree build.
+		script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+		gen="$script_dir/clang-tools/gen_compile_commands.py"
+		[[ -f "$gen" ]] || die "no compile_commands.json or generator (build the kernel first)"
+		echo "generating compile_commands.json ..." >&2
+		python3 "$gen" -d "$target" -o "$ccj" ||
+			die "gen_compile_commands.py failed"
+	fi
+	list="$(mktemp)"
+	trap 'rm -f "$list"' EXIT
+	python3 - "$ccj" >"$list" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as database:
+    commands = json.load(database)
+base = os.path.dirname(os.path.abspath(sys.argv[1]))
+seen = set()
+for entry in commands:
+    source = entry.get("file")
+    if not source:
+        continue
+    directory = os.path.join(base, entry.get("directory", ""))
+    path = os.path.realpath(os.path.join(directory, source))
+    if not os.path.isfile(path):
+        sys.exit(f"ERROR: compiled source not found: {path}")
+    if "\n" in path or "\r" in path:
+        sys.exit("ERROR: source paths must not contain newlines")
+    if path not in seen:
+        seen.add(path)
+        print(path)
+PY
+	[[ -s "$list" ]] || die "no compiled sources found (build the kernel first)"
+	n="$(cloc_sum_from_list "$list")"
+	echo "kernel compiled sources: $(wc -l <"$list") files, ${n} SLOC" >&2
+	echo "$n"
+	;;
+dwarf)
+	[[ -f "$target" ]] || die "ELF not found: $target (build with debug information)"
+	OBJDUMP="${OBJDUMP:-${CROSS_COMPILE:-}objdump}"
+	# Preserve the prefix when only a conventional OBJDUMP name is overridden.
+	if [[ "$OBJDUMP" == *objdump ]]; then
+		ADDR2LINE="${ADDR2LINE:-${OBJDUMP%objdump}addr2line}"
+	else
+		ADDR2LINE="${ADDR2LINE:-${CROSS_COMPILE:-}addr2line}"
+	fi
+	need_command "$OBJDUMP"
+	need_command "$ADDR2LINE"
+	need_command python3
+	# Decoded line rows contain basenames, which are not unique in a kernel.
+	# Resolve their addresses to full paths before deduplicating file:line pairs.
+	n="$(LC_ALL=C "$OBJDUMP" --dwarf=decodedline "$target" |
+		awk 'NF >= 3 && $2 ~ /^[0-9]+$/ {print $3}' |
+		sort -u |
+		LC_ALL=C "$ADDR2LINE" -e "$target" |
+		python3 -c '
+import os
+import re
+import sys
+
+seen = set()
+for row in sys.stdin:
+    match = re.fullmatch(r"(.*):([0-9]+)(?: \(discriminator [0-9]+\))?", row.strip())
+    if match and match[1] != "??" and int(match[2]) > 0:
+        seen.add((os.path.normpath(match[1]), int(match[2])))
+print(len(seen))
+')"
+	[[ "$n" -gt 0 ]] || die "no DWARF source lines found (build with CONFIG_DEBUG_INFO)"
+	echo "dwarf distinct source lines (debug-info estimate): ${n}" >&2
+	echo "$n"
+	;;
+tree)
+	need_cloc
+	[[ -d "$target" ]] || die "source dir not found: $target"
+	n="$(cloc --include-lang=C,C++,'C/C++ Header' --skip-uniqueness \
+		--csv --quiet "$target" | cloc_sum)"
+	echo "source tree $target (C/C++ and headers): ${n} SLOC" >&2
+	echo "$n"
+	;;
+files)
+	need_cloc
+	shift
+	for source in "$@"; do
+		[[ -f "$source" ]] || die "source file not found: $source"
+		[[ "$source" != *$'\n'* && "$source" != *$'\r'* ]] ||
+			die "source paths must not contain newlines"
+	done
+	list="$(mktemp)"
+	trap 'rm -f "$list"' EXIT
+	printf '%s\n' "$@" >"$list"
+	n="$(cloc_sum_from_list "$list")"
+	echo "files: $# path(s), ${n} SLOC" >&2
+	echo "$n"
+	;;
+esac

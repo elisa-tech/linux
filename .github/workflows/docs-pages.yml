@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Fork-only hosting: enable Settings > Pages > GitHub Actions before publishing.
+name: Build and publish kernel documentation
+
+on:
+  push:
+    branches: [mlw/minimize-docs]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-docs-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'elisa-tech/linux' && github.ref == 'refs/heads/mlw/minimize-docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SPHINX_IMGMATH: 'no'
+    steps:
+      - name: Check out documentation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install documentation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y make gcc perl graphviz
+          python -m pip install -r Documentation/sphinx/requirements.txt \
+            'Sphinx==8.2.3' 'docutils==0.21.2' 'alabaster==1.0.0' 'PyYAML==6.0.3'
+          python -m pip check
+
+      - name: Build HTML documentation
+        # Build the tree together so cross-guide links and search work.
+        shell: bash
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/htmldocs-pycache
+        run: |
+          set -euo pipefail
+          make -j2 htmldocs \
+            SPHINXOPTS="-j2 -w $RUNNER_TEMP/htmldocs-warnings.log" \
+            2>&1 | tee "$RUNNER_TEMP/htmldocs-build.log"
+          test -s Documentation/output/index.html
+          test -s Documentation/output/admin-guide/kernel-minimization.html
+          test -s Documentation/output/admin-guide/workload-tracing.html
+          test -s Documentation/output/searchindex.js
+
+      - name: Retain build logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: htmldocs-logs
+          path: ${{ runner.temp }}/htmldocs-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Pages site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: Documentation/output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Deploy Pages site
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
